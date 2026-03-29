@@ -23,7 +23,7 @@ const stateDefaults = {
   catalogUrl: DEFAULT_CATALOG_URL,
   lastFetchedAt: null,
   current: {
-    id: 'default',
+    id: 'openclaw-default',
     category: 'builtin',
     sourceUrl: DEFAULT_SOUL_SOURCE,
     appliedAt: null,
@@ -233,7 +233,7 @@ async function currentSoul(state) {
   const { current } = state;
   if (!current?.custom && !current?.sourceUrl) {
     return {
-      id: 'default',
+      id: 'openclaw-default',
       category: 'builtin',
       sourceUrl: DEFAULT_SOUL_SOURCE,
       appliedAt: null,

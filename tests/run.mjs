@@ -120,7 +120,7 @@ await test('current defaults to builtin soul', async () => {
   const cwd = await setupWorkspace();
   const result = await runCli(['current'], { cwd });
   assert.equal(result.code, 0);
-  assert.match(result.stdout, /id: default/);
+  assert.match(result.stdout, /id: openclaw-default/);
   assert.match(result.stdout, /category: builtin/);
 });
 
