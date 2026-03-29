@@ -61,9 +61,6 @@ function parseTrustedUrl(url, label) {
   if (parsed.protocol !== 'https:') {
     throw new Error(`${label} must use https: ${url}`);
   }
-  if (parsed.hostname !== 'raw.githubusercontent.com') {
-    throw new Error(`${label} must use raw.githubusercontent.com: ${url}`);
-  }
   return parsed;
 }
 

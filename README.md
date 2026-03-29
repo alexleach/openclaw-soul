@@ -53,7 +53,7 @@ Workspace-local state is stored in:
 
 ## Safety notes
 
-- trusted remote content is limited to `https://raw.githubusercontent.com/...`
+- the default catalog/content source is the upstream `mergisi/awesome-openclaw-agents` raw endpoint
 - catalog entries must resolve to relative `SOUL.md` paths
 - invalid catalog data and suspicious paths are rejected
 - local backups are kept before overwrite when possible
