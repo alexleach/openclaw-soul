@@ -1,29 +1,48 @@
 # openclaw-soul
 
-OpenClaw skill providing a `/soul` command to browse and apply curated `SOUL.md` personas from a machine-readable catalog.
+`openclaw-soul` is an OpenClaw skill that adds a `/soul` command for browsing, previewing, applying, and restoring curated `SOUL.md` personas from a machine-readable catalog.
 
-## Goals
+It keeps the workflow simple: browse a catalog, inspect a soul, apply it to the current workspace, and restore from backup if needed.
 
-- native-feeling `/soul` command for OpenClaw
-- browse catalog by category rather than dumping a huge flat list
-- apply a selected remote `SOUL.md` into the current workspace
-- keep visible backups and local provenance metadata
-- default to the `awesome-openclaw-agents` catalog, while allowing a configurable alternate catalog URL later
+## Features
 
-## MVP commands
+- browse personas by category
+- preview a soul before applying it
+- apply a remote `SOUL.md` into the current workspace
+- keep local backups before changes
+- restore the previous soul
+- refresh the cached catalog
+- record local provenance metadata
 
-- `/soul`
-- `/soul categories`
-- `/soul list <category>`
-- `/soul show <id>`
-- `/soul apply <id>`
-- `/soul current`
-- `/soul restore`
-- `/soul search <text>`
+## Commands
+
+| Command | Description |
+| --- | --- |
+| `/soul` | Show help and current recorded state |
+| `/soul categories` | List catalog categories |
+| `/soul list <category>` | List souls in a category |
+| `/soul show <id>` | Show soul metadata and source |
+| `/soul apply <id>` | Apply a soul to the workspace |
+| `/soul current` | Show the last recorded applied soul |
+| `/soul restore` | Restore the latest local backup |
+| `/soul refresh` | Re-fetch the remote catalog and refresh cache |
+| `/soul search <text>` | Search by id, name, category, or role |
+
+## Example usage
+
+```text
+/soul categories
+/soul list creative
+/soul show pirate-captain
+/soul apply pirate-captain
+/soul restore
+```
+
+After `apply` or `restore`, start a new session or use `/new` for full effect.
 
 ## Storage
 
-Workspace-local state is kept in:
+Workspace-local state is stored in:
 
 - `soul-data/cache/agents.json`
 - `soul-data/backups/SOUL-<timestamp>.md`
@@ -31,10 +50,28 @@ Workspace-local state is kept in:
 
 ## Default catalog
 
-Default upstream catalog:
+- Catalog: <https://raw.githubusercontent.com/mergisi/awesome-openclaw-agents/refs/heads/main/agents.json>
+- Source repo: <https://github.com/mergisi/awesome-openclaw-agents>
 
-- <https://raw.githubusercontent.com/mergisi/awesome-openclaw-agents/refs/heads/main/agents.json>
+## Safety notes
+
+- trusted remote content is limited to `https://raw.githubusercontent.com/...`
+- catalog entries must resolve to relative `SOUL.md` paths
+- invalid catalog data and suspicious paths are rejected
+- local backups are kept before overwrite when possible
+- state, cache, backups, and `SOUL.md` are written atomically
+
+## Development
+
+```bash
+npm test
+```
 
 ## Notes
 
-This skill applies only `SOUL.md` in the MVP. It does not currently swap `AGENTS.md`, `HEARTBEAT.md`, or other workspace files.
+- This MVP manages `SOUL.md` only.
+- It does not register provider-native slash commands for Discord, Telegram, Matrix, or other chat providers.
+
+## License
+
+MIT

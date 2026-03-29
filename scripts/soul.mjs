@@ -6,9 +6,10 @@ import process from 'node:process';
 
 const DEFAULT_CATALOG_URL = 'https://raw.githubusercontent.com/mergisi/awesome-openclaw-agents/refs/heads/main/agents.json';
 const DEFAULT_RAW_ROOT = 'https://raw.githubusercontent.com/mergisi/awesome-openclaw-agents/refs/heads/main/';
+const USER_AGENT = 'openclaw-soul/0.1.0';
+const FETCH_TIMEOUT_MS = 15000;
 
-const cwd = process.cwd();
-const workspaceDir = cwd;
+const workspaceDir = process.cwd();
 const soulFile = path.join(workspaceDir, 'SOUL.md');
 const dataDir = path.join(workspaceDir, 'soul-data');
 const cacheDir = path.join(dataDir, 'cache');
@@ -16,8 +17,14 @@ const backupDir = path.join(dataDir, 'backups');
 const stateFile = path.join(dataDir, 'state.json');
 const cacheFile = path.join(cacheDir, 'agents.json');
 
-const args = process.argv.slice(2);
-const subcommand = (args[0] || '').trim();
+const [subcommand = '', ...rest] = process.argv.slice(2).map(arg => arg.trim());
+const stateDefaults = {
+  catalogUrl: DEFAULT_CATALOG_URL,
+  rawRoot: DEFAULT_RAW_ROOT,
+  lastFetchedAt: null,
+  current: null,
+  backups: []
+};
 
 async function ensureDirs() {
   await fs.mkdir(cacheDir, { recursive: true });
@@ -32,29 +39,116 @@ async function readJson(file, fallback) {
   }
 }
 
+async function writeAtomic(file, content) {
+  const dir = path.dirname(file);
+  const base = path.basename(file);
+  const temp = path.join(dir, `.${base}.${process.pid}.${Date.now()}.tmp`);
+  await fs.writeFile(temp, content, 'utf8');
+  await fs.rename(temp, file);
+}
+
 async function writeJson(file, value) {
-  await fs.writeFile(file, JSON.stringify(value, null, 2) + '\n', 'utf8');
+  await writeAtomic(file, JSON.stringify(value, null, 2) + '\n');
+}
+
+function parseTrustedUrl(url, label) {
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new Error(`Invalid ${label}: ${url}`);
+  }
+  if (parsed.protocol !== 'https:') {
+    throw new Error(`${label} must use https: ${url}`);
+  }
+  if (parsed.hostname !== 'raw.githubusercontent.com') {
+    throw new Error(`${label} must use raw.githubusercontent.com: ${url}`);
+  }
+  return parsed;
+}
+
+function normalizeRelativeSoulPath(relPath) {
+  if (typeof relPath !== 'string' || !relPath.trim()) {
+    throw new Error('Catalog agent path must be a non-empty string.');
+  }
+  const trimmed = relPath.trim();
+  if (trimmed.startsWith('/') || trimmed.startsWith('\\')) {
+    throw new Error(`Catalog agent path must be relative: ${relPath}`);
+  }
+  const parts = trimmed.split('/');
+  if (parts.some(part => !part || part === '.' || part === '..')) {
+    throw new Error(`Catalog agent path contains invalid segments: ${relPath}`);
+  }
+  if (parts[parts.length - 1] !== 'SOUL.md') {
+    throw new Error(`Catalog agent path must point to SOUL.md: ${relPath}`);
+  }
+  return parts.join('/');
+}
+
+function validateCatalog(catalog) {
+  if (!catalog || typeof catalog !== 'object' || Array.isArray(catalog)) {
+    throw new Error('Catalog must be a JSON object.');
+  }
+  if (!Array.isArray(catalog.agents)) {
+    throw new Error('Catalog must contain an agents array.');
+  }
+
+  const ids = new Set();
+  const agents = catalog.agents.map((agent, index) => {
+    if (!agent || typeof agent !== 'object' || Array.isArray(agent)) {
+      throw new Error(`Catalog agent at index ${index} must be an object.`);
+    }
+    const id = typeof agent.id === 'string' ? agent.id.trim() : '';
+    const category = typeof agent.category === 'string' ? agent.category.trim() : '';
+    const relPath = normalizeRelativeSoulPath(agent.path);
+    if (!id) throw new Error(`Catalog agent at index ${index} is missing id.`);
+    if (!category) throw new Error(`Catalog agent ${id} is missing category.`);
+    const lowerId = id.toLowerCase();
+    if (ids.has(lowerId)) throw new Error(`Duplicate catalog agent id: ${id}`);
+    ids.add(lowerId);
+    return {
+      ...agent,
+      id,
+      category,
+      path: relPath,
+      name: typeof agent.name === 'string' ? agent.name.trim() : '',
+      role: typeof agent.role === 'string' ? agent.role.trim() : ''
+    };
+  });
+
+  return { ...catalog, agents };
 }
 
 async function fetchText(url) {
-  const res = await fetch(url, {
-    headers: {
-      'user-agent': 'openclaw-soul/0.1.0',
-      'accept': 'application/json, text/plain;q=0.9, */*;q=0.8'
+  const parsed = parseTrustedUrl(url, 'URL');
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  try {
+    const res = await fetch(parsed.toString(), {
+      headers: {
+        'user-agent': USER_AGENT,
+        'accept': 'application/json, text/plain;q=0.9, */*;q=0.8'
+      },
+      signal: controller.signal
+    });
+    if (!res.ok) throw new Error(`Fetch failed: ${res.status} ${res.statusText} for ${parsed}`);
+    return await res.text();
+  } catch (err) {
+    if (err?.name === 'AbortError') {
+      throw new Error(`Fetch timed out after ${FETCH_TIMEOUT_MS}ms for ${parsed}`);
     }
-  });
-  if (!res.ok) throw new Error(`Fetch failed: ${res.status} ${res.statusText} for ${url}`);
-  return await res.text();
+    throw err;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 async function loadState() {
-  return await readJson(stateFile, {
-    catalogUrl: DEFAULT_CATALOG_URL,
-    rawRoot: DEFAULT_RAW_ROOT,
-    lastFetchedAt: null,
-    current: null,
-    backups: []
-  });
+  const state = { ...stateDefaults, ...(await readJson(stateFile, stateDefaults)) };
+  state.catalogUrl = parseTrustedUrl(state.catalogUrl, 'catalogUrl').toString();
+  state.rawRoot = parseTrustedUrl(state.rawRoot, 'rawRoot').toString();
+  state.backups = Array.isArray(state.backups) ? state.backups : [];
+  return state;
 }
 
 async function saveState(state) {
@@ -63,48 +157,58 @@ async function saveState(state) {
 
 async function loadCatalog(force = false) {
   const state = await loadState();
-  if (!force) {
-    const cached = await readJson(cacheFile, null);
-    if (cached?.agents?.length) return { catalog: cached, state, source: 'cache' };
+  const cached = !force ? await readJson(cacheFile, null) : null;
+  if (cached?.agents?.length) return { catalog: validateCatalog(cached), state, source: 'cache' };
+
+  let parsed;
+  try {
+    parsed = JSON.parse(await fetchText(state.catalogUrl));
+  } catch (err) {
+    if (err instanceof SyntaxError) throw new Error('Catalog fetch succeeded, but JSON parsing failed.');
+    throw err;
   }
-  const text = await fetchText(state.catalogUrl || DEFAULT_CATALOG_URL);
-  const catalog = JSON.parse(text);
-  await writeJson(cacheFile, catalog);
+
+  const catalog = validateCatalog(parsed);
   state.lastFetchedAt = new Date().toISOString();
-  await saveState(state);
+  await Promise.all([writeJson(cacheFile, catalog), saveState(state)]);
   return { catalog, state, source: 'remote' };
 }
 
-function byCategory(catalog) {
-  const m = new Map();
-  for (const agent of catalog.agents || []) {
-    const cat = agent.category || 'uncategorized';
-    const list = m.get(cat) || [];
-    list.push(agent);
-    m.set(cat, list);
+function byCategory({ agents = [] }) {
+  const map = new Map();
+  for (const agent of agents) {
+    const category = agent.category || 'uncategorized';
+    map.set(category, [...(map.get(category) || []), agent]);
   }
-  return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0]));
 }
 
-function findAgent(catalog, id) {
+function findAgent({ agents = [] }, id) {
   const needle = id.toLowerCase();
-  return (catalog.agents || []).find(a =>
-    (a.id || '').toLowerCase() === needle ||
-    (a.name || '').toLowerCase() === needle
-  );
+  return agents.find(a => [a.id, a.name].some(v => v?.toLowerCase() === needle));
 }
 
-function searchAgents(catalog, text) {
+function searchAgents({ agents = [] }, text) {
   const needle = text.toLowerCase();
-  return (catalog.agents || []).filter(a =>
-    [a.id, a.name, a.category, a.role].filter(Boolean).some(v => String(v).toLowerCase().includes(needle))
-  );
+  return agents.filter(a => [a.id, a.name, a.category, a.role].some(v => v?.toLowerCase().includes(needle)));
 }
 
 function buildRawSoulUrl(state, agent) {
-  const rawRoot = state.rawRoot || DEFAULT_RAW_ROOT;
-  const relPath = agent.path || '';
-  return new URL(relPath, rawRoot).toString();
+  const rawRoot = parseTrustedUrl(state.rawRoot, 'rawRoot');
+  const resolved = new URL(normalizeRelativeSoulPath(agent.path || ''), rawRoot);
+  if (resolved.hostname !== rawRoot.hostname || !resolved.pathname.startsWith(rawRoot.pathname)) {
+    throw new Error(`Resolved soul URL escapes configured rawRoot: ${resolved}`);
+  }
+  return resolved.toString();
+}
+
+function validateSoulContent(content, sourceUrl) {
+  const text = typeof content === 'string' ? content.trim() : '';
+  if (!text) throw new Error(`Fetched soul content is empty: ${sourceUrl}`);
+  if (!(text.startsWith('#') || text.startsWith('---') || text.includes('\n# '))) {
+    throw new Error(`Fetched content does not look like a SOUL.md file: ${sourceUrl}`);
+  }
+  return content;
 }
 
 async function backupCurrentSoul(state) {
@@ -112,7 +216,7 @@ async function backupCurrentSoul(state) {
     const current = await fs.readFile(soulFile, 'utf8');
     const timestamp = new Date().toISOString().replaceAll(':', '-');
     const backupPath = path.join(backupDir, `SOUL-${timestamp}.md`);
-    await fs.writeFile(backupPath, current, 'utf8');
+    await writeAtomic(backupPath, current);
     state.backups = state.backups || [];
     state.backups.unshift({ path: backupPath, createdAt: new Date().toISOString() });
     state.backups = state.backups.slice(0, 20);
@@ -122,139 +226,100 @@ async function backupCurrentSoul(state) {
   }
 }
 
+function print(text) {
+  console.log(text);
+}
+
 async function showHelp() {
-  const state = await loadState();
-  const current = state.current?.id ? `${state.current.id} (${state.current.category || 'unknown'})` : 'none recorded';
-  console.log(`Current soul: ${current}\n\nCommands:\n  soul categories\n  soul list <category>\n  soul show <id>\n  soul apply <id>\n  soul current\n  soul restore\n  soul search <text>`);
+  const { current } = await loadState();
+  const active = current?.id ? `${current.id} (${current.category || 'unknown'})` : 'none recorded';
+  print(`Current soul: ${active}\n\nCommands:\n  soul categories\n  soul list <category>\n  soul show <id>\n  soul apply <id>\n  soul current\n  soul restore\n  soul refresh\n  soul search <text>`);
 }
 
 async function main() {
   await ensureDirs();
 
-  if (!subcommand) {
-    await showHelp();
-    return;
-  }
+  if (!subcommand) return showHelp();
 
   if (subcommand === 'current') {
-    const state = await loadState();
-    if (!state.current) {
-      console.log('No recorded applied soul yet.');
-      return;
-    }
-    console.log(`Current soul:\n- id: ${state.current.id}\n- category: ${state.current.category}\n- source: ${state.current.sourceUrl}\n- appliedAt: ${state.current.appliedAt}`);
-    return;
+    const { current } = await loadState();
+    return print(current
+      ? `Current soul:\n- id: ${current.id}\n- category: ${current.category}\n- source: ${current.sourceUrl}\n- appliedAt: ${current.appliedAt}`
+      : 'No recorded applied soul yet.');
   }
 
   if (subcommand === 'restore') {
     const state = await loadState();
-    const latest = state.backups?.[0];
-    if (!latest) {
-      console.log('No backup found in soul-data/backups/.');
-      return;
-    }
-    const content = await fs.readFile(latest.path, 'utf8');
-    await fs.writeFile(soulFile, content, 'utf8');
+    const latest = state.backups[0];
+    if (!latest) return print('No backup found in soul-data/backups/.');
+    const content = validateSoulContent(await fs.readFile(latest.path, 'utf8'), latest.path);
     state.current = {
       id: 'restored-from-backup',
       category: 'local',
       sourceUrl: latest.path,
       appliedAt: new Date().toISOString()
     };
-    await saveState(state);
-    console.log(`Restored SOUL.md from backup:\n- ${latest.path}\n\nStart a new session or use /new to fully apply the restored soul.`);
-    return;
+    await Promise.all([writeAtomic(soulFile, content), saveState(state)]);
+    return print(`Restored SOUL.md from backup:\n- ${latest.path}\n\nStart a new session or use /new to fully apply the restored soul.`);
   }
 
-  const { catalog, state } = await loadCatalog(false);
+  const { catalog, state, source } = await loadCatalog(subcommand === 'refresh');
+
+  if (subcommand === 'refresh') {
+    return print(`Catalog refreshed from ${source}:\n- url: ${state.catalogUrl}\n- agents: ${catalog.agents.length}\n- fetchedAt: ${state.lastFetchedAt}`);
+  }
 
   if (subcommand === 'categories') {
-    for (const [category, list] of byCategory(catalog)) {
-      console.log(`- ${category} (${list.length})`);
-    }
-    return;
+    return print(byCategory(catalog).map(([category, list]) => `- ${category} (${list.length})`).join('\n'));
   }
 
   if (subcommand === 'list') {
-    const category = (args[1] || '').trim().toLowerCase();
-    if (!category) {
-      console.log('Usage: soul list <category>\n\nTip: run `soul categories` first.');
-      return;
-    }
-    const matches = (catalog.agents || []).filter(a => (a.category || '').toLowerCase() === category);
-    if (!matches.length) {
-      console.log(`No souls found for category: ${category}`);
-      return;
-    }
-    for (const a of matches) {
-      const summary = a.role || a.name || a.id;
-      console.log(`- ${a.id} — ${summary}`);
-    }
-    return;
+    const category = (rest[0] || '').toLowerCase();
+    if (!category) return print('Usage: soul list <category>\n\nTip: run `soul categories` first.');
+    const matches = catalog.agents.filter(a => a.category.toLowerCase() === category);
+    return print(matches.length
+      ? matches.map(a => `- ${a.id} — ${a.role || a.name || a.id}`).join('\n')
+      : `No souls found for category: ${category}`);
   }
 
   if (subcommand === 'search') {
-    const text = args.slice(1).join(' ').trim();
-    if (!text) {
-      console.log('Usage: soul search <text>');
-      return;
-    }
+    const text = rest.join(' ').trim();
+    if (!text) return print('Usage: soul search <text>');
     const matches = searchAgents(catalog, text).slice(0, 40);
-    if (!matches.length) {
-      console.log(`No souls found matching: ${text}`);
-      return;
-    }
-    for (const a of matches) {
-      console.log(`- ${a.id} [${a.category}]${a.role ? ` — ${a.role}` : ''}`);
-    }
-    return;
+    return print(matches.length
+      ? matches.map(a => `- ${a.id} [${a.category}]${a.role ? ` — ${a.role}` : ''}`).join('\n')
+      : `No souls found matching: ${text}`);
   }
 
   if (subcommand === 'show') {
-    const id = (args[1] || '').trim();
-    if (!id) {
-      console.log('Usage: soul show <id>');
-      return;
-    }
+    const id = rest[0] || '';
+    if (!id) return print('Usage: soul show <id>');
     const agent = findAgent(catalog, id);
-    if (!agent) {
-      console.log(`Soul not found: ${id}`);
-      return;
-    }
-    const sourceUrl = buildRawSoulUrl(state, agent);
-    console.log(`Soul:\n- id: ${agent.id}\n- category: ${agent.category}\n- name: ${agent.name}\n- role: ${agent.role || '(none)'}\n- source: ${sourceUrl}`);
-    return;
+    if (!agent) return print(`Soul not found: ${id}`);
+    return print(`Soul:\n- id: ${agent.id}\n- category: ${agent.category}\n- name: ${agent.name || '(none)'}\n- role: ${agent.role || '(none)'}\n- source: ${buildRawSoulUrl(state, agent)}`);
   }
 
   if (subcommand === 'apply') {
-    const id = (args[1] || '').trim();
-    if (!id) {
-      console.log('Usage: soul apply <id>');
-      return;
-    }
+    const id = rest[0] || '';
+    if (!id) return print('Usage: soul apply <id>');
     const agent = findAgent(catalog, id);
-    if (!agent) {
-      console.log(`Soul not found: ${id}`);
-      return;
-    }
+    if (!agent) return print(`Soul not found: ${id}`);
     const sourceUrl = buildRawSoulUrl(state, agent);
+    const content = validateSoulContent(await fetchText(sourceUrl), sourceUrl);
     const backupPath = await backupCurrentSoul(state);
-    const content = await fetchText(sourceUrl);
-    await fs.writeFile(soulFile, content, 'utf8');
     state.current = {
       id: agent.id,
       category: agent.category,
-      name: agent.name,
+      name: agent.name || null,
       role: agent.role || null,
       sourceUrl,
       appliedAt: new Date().toISOString()
     };
-    await saveState(state);
-    console.log(`Applied soul:\n- id: ${agent.id}\n- category: ${agent.category}\n- source: ${sourceUrl}${backupPath ? `\n- backup: ${backupPath}` : ''}\n\nStart a new session or use /new to fully apply the new soul.`);
-    return;
+    await Promise.all([writeAtomic(soulFile, content), saveState(state)]);
+    return print(`Applied soul:\n- id: ${agent.id}\n- category: ${agent.category}\n- source: ${sourceUrl}${backupPath ? `\n- backup: ${backupPath}` : ''}\n\nStart a new session or use /new to fully apply the new soul.`);
   }
 
-  console.log(`Unknown subcommand: ${subcommand}\n\nRun: soul`);
+  print(`Unknown subcommand: ${subcommand}\n\nRun: soul`);
 }
 
 main().catch((err) => {
