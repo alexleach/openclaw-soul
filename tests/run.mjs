@@ -194,6 +194,19 @@ await test('apply accepts a relative path entry', async () => {
   assert.equal(state.current.custom, false);
 });
 
+await test('rejects local paths outside workspace', async () => {
+  const cwd = await setupWorkspace({
+    state: {
+      catalogUrl: 'https://raw.githubusercontent.com/mergisi/awesome-openclaw-agents/refs/heads/main/agents.json'
+    },
+    cache: { agents: [{ id: 'oops', category: 'fun', path: '../evil/SOUL.md' }] },
+    soul: '# Existing\n'
+  });
+  const result = await runCli(['apply', 'oops'], { cwd });
+  assert.notEqual(result.code, 0);
+  assert.match(result.stderr, /escapes workspace/);
+});
+
 await test('manual edit is detected as custom', async () => {
   const cwd = await setupWorkspace({
     state: {

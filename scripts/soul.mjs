@@ -7,6 +7,7 @@ import crypto from 'node:crypto';
 
 const DEFAULT_CATALOG_URL = 'https://raw.githubusercontent.com/mergisi/awesome-openclaw-agents/refs/heads/main/agents.json';
 const DEFAULT_SOUL_SOURCE = 'https://docs.openclaw.ai/reference/templates/SOUL.md';
+const CHECKLIST_FILE = 'PRE-PUBLISH-CHECKLIST.md';
 const USER_AGENT = 'openclaw-soul/0.1.0';
 const FETCH_TIMEOUT_MS = 15000;
 
@@ -116,7 +117,11 @@ function validateCatalog(catalog) {
 async function fetchText(url) {
   const parsed = parseCatalogUrl(url, 'URL');
   if (!parsed) {
-    return await fs.readFile(url, 'utf8');
+    const resolved = path.resolve(workspaceDir, url);
+    if (!resolved.startsWith(workspaceDir + path.sep) && resolved !== workspaceDir) {
+      throw new Error(`Local path escapes workspace: ${url}`);
+    }
+    return await fs.readFile(resolved, 'utf8');
   }
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
@@ -196,7 +201,11 @@ function buildRawSoulUrl(state, agent) {
     return relPath;
   }
   if (/^(?:\.|\.|\/)/.test(relPath) || relPath.includes('/./') || relPath.includes('/../')) {
-    return relPath;
+    const resolved = path.resolve(workspaceDir, relPath);
+    if (!resolved.startsWith(workspaceDir + path.sep) && resolved !== workspaceDir) {
+      throw new Error(`Local soul path escapes workspace: ${relPath}`);
+    }
+    return resolved;
   }
   const parsed = parseCatalogUrl(state.catalogUrl, 'catalogUrl');
   const rawRoot = new URL('.', parsed);
