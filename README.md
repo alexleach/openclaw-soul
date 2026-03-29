@@ -57,6 +57,7 @@ npm test
 ## Notes
 
 - The current soul defaults to OpenClaw's built-in `SOUL.md` until you apply a custom one.
+- If you manually edit `SOUL.md`, `current` reports it as `custom`.
 - It does not register provider-native slash commands for Discord, Telegram, Matrix, or other chat providers.
 
 ## License
