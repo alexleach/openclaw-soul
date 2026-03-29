@@ -81,8 +81,7 @@ await test('help output includes refresh', async () => {
 await test('refresh fails on invalid cached catalog shape', async () => {
   const cwd = await setupWorkspace({
     state: {
-      catalogUrl: 'https://raw.githubusercontent.com/mergisi/awesome-openclaw-agents/refs/heads/main/agents.json',
-      rawRoot: 'https://raw.githubusercontent.com/mergisi/awesome-openclaw-agents/refs/heads/main/'
+      catalogUrl: 'https://raw.githubusercontent.com/mergisi/awesome-openclaw-agents/refs/heads/main/agents.json'
     },
     cache: { agents: 'broken' }
   });
@@ -94,8 +93,7 @@ await test('refresh fails on invalid cached catalog shape', async () => {
 await test('categories works from valid cache', async () => {
   const cwd = await setupWorkspace({
     state: {
-      catalogUrl: 'https://raw.githubusercontent.com/mergisi/awesome-openclaw-agents/refs/heads/main/agents.json',
-      rawRoot: 'https://raw.githubusercontent.com/mergisi/awesome-openclaw-agents/refs/heads/main/'
+      catalogUrl: 'https://raw.githubusercontent.com/mergisi/awesome-openclaw-agents/refs/heads/main/agents.json'
     },
     cache: validCatalog
   });
@@ -107,8 +105,7 @@ await test('categories works from valid cache', async () => {
 await test('show prints useful metadata', async () => {
   const cwd = await setupWorkspace({
     state: {
-      catalogUrl: 'https://raw.githubusercontent.com/mergisi/awesome-openclaw-agents/refs/heads/main/agents.json',
-      rawRoot: 'https://raw.githubusercontent.com/mergisi/awesome-openclaw-agents/refs/heads/main/'
+      catalogUrl: 'https://raw.githubusercontent.com/mergisi/awesome-openclaw-agents/refs/heads/main/agents.json'
     },
     cache: validCatalog
   });
@@ -119,11 +116,12 @@ await test('show prints useful metadata', async () => {
   assert.match(result.stdout, /source: https:\/\/raw\.githubusercontent\.com\//);
 });
 
-await test('current shows no applied soul yet when state is empty', async () => {
+await test('current defaults to builtin soul', async () => {
   const cwd = await setupWorkspace();
   const result = await runCli(['current'], { cwd });
   assert.equal(result.code, 0);
-  assert.match(result.stdout, /No recorded applied soul yet\./);
+  assert.match(result.stdout, /id: default/);
+  assert.match(result.stdout, /category: builtin/);
 });
 
 await test('restore fails cleanly when no backup exists', async () => {
@@ -136,19 +134,11 @@ await test('restore fails cleanly when no backup exists', async () => {
 await test('restore restores latest backup', async () => {
   const cwd = await setupWorkspace({
     state: {
-      catalogUrl: 'https://raw.githubusercontent.com/mergisi/awesome-openclaw-agents/refs/heads/main/agents.json',
-      rawRoot: 'https://raw.githubusercontent.com/mergisi/awesome-openclaw-agents/refs/heads/main/',
-      backups: [{ path: path.join('REPLACE_ME', 'soul-data', 'backups', 'SOUL-1.md'), createdAt: '2026-03-28T00:00:00.000Z' }]
+      catalogUrl: 'https://raw.githubusercontent.com/mergisi/awesome-openclaw-agents/refs/heads/main/agents.json'
     },
     soul: '# Current\n\nOld soul\n'
   });
-  const backupPath = path.join(cwd, 'soul-data', 'backups', 'SOUL-1.md');
-  await writeText(backupPath, '# Restored\n\nBacked up soul\n');
-  const statePath = path.join(cwd, 'soul-data', 'state.json');
-  const state = JSON.parse(await fs.readFile(statePath, 'utf8'));
-  state.backups[0].path = backupPath;
-  await writeJson(statePath, state);
-
+  await writeText(path.join(cwd, 'soul-data', 'backups', 'SOUL-1.md'), '# Restored\n\nBacked up soul\n');
   const result = await runCli(['restore'], { cwd });
   assert.equal(result.code, 0);
   const restored = await fs.readFile(path.join(cwd, 'SOUL.md'), 'utf8');
@@ -159,8 +149,7 @@ await test('restore restores latest backup', async () => {
 await test('show returns a simple not-found message for unknown id', async () => {
   const cwd = await setupWorkspace({
     state: {
-      catalogUrl: 'https://raw.githubusercontent.com/mergisi/awesome-openclaw-agents/refs/heads/main/agents.json',
-      rawRoot: 'https://raw.githubusercontent.com/mergisi/awesome-openclaw-agents/refs/heads/main/'
+      catalogUrl: 'https://raw.githubusercontent.com/mergisi/awesome-openclaw-agents/refs/heads/main/agents.json'
     },
     cache: validCatalog
   });
@@ -172,8 +161,7 @@ await test('show returns a simple not-found message for unknown id', async () =>
 await test('list returns a simple not-found message for unknown category', async () => {
   const cwd = await setupWorkspace({
     state: {
-      catalogUrl: 'https://raw.githubusercontent.com/mergisi/awesome-openclaw-agents/refs/heads/main/agents.json',
-      rawRoot: 'https://raw.githubusercontent.com/mergisi/awesome-openclaw-agents/refs/heads/main/'
+      catalogUrl: 'https://raw.githubusercontent.com/mergisi/awesome-openclaw-agents/refs/heads/main/agents.json'
     },
     cache: validCatalog
   });
@@ -185,18 +173,36 @@ await test('list returns a simple not-found message for unknown category', async
 await test('apply accepts a relative path entry', async () => {
   const cwd = await setupWorkspace({
     state: {
-      catalogUrl: 'https://raw.githubusercontent.com/mergisi/awesome-openclaw-agents/refs/heads/main/agents.json',
-      rawRoot: 'https://raw.githubusercontent.com/mergisi/awesome-openclaw-agents/refs/heads/main/'
+      catalogUrl: 'https://raw.githubusercontent.com/mergisi/awesome-openclaw-agents/refs/heads/main/agents.json'
     },
     cache: { agents: [{ id: 'oops', category: 'fun', path: './local/SOUL.md' }] },
     soul: '# Existing\n'
   });
-  const localSoul = path.join(cwd, 'local', 'SOUL.md');
-  await writeText(localSoul, '# Local\n\nLocal soul\n');
+  await writeText(path.join(cwd, 'local', 'SOUL.md'), '# Local\n\nLocal soul\n');
   const result = await runCli(['apply', 'oops'], { cwd });
   assert.equal(result.code, 0);
   const current = await fs.readFile(path.join(cwd, 'SOUL.md'), 'utf8');
   assert.match(current, /# Local/);
+});
+
+await test('manually edited soul is reported as custom', async () => {
+  const cwd = await setupWorkspace({
+    state: {
+      catalogUrl: 'https://raw.githubusercontent.com/mergisi/awesome-openclaw-agents/refs/heads/main/agents.json',
+      current: {
+        id: 'custom',
+        category: 'local',
+        sourceUrl: path.join('/tmp', 'manual', 'SOUL.md'),
+        appliedAt: '2026-03-29T00:00:00.000Z',
+        custom: true
+      }
+    },
+    soul: '# Custom\n'
+  });
+  const result = await runCli(['current'], { cwd });
+  assert.equal(result.code, 0);
+  assert.match(result.stdout, /id: custom/);
+  assert.match(result.stdout, /category: local/);
 });
 
 if (process.exitCode) {

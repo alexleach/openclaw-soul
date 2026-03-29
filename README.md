@@ -1,17 +1,14 @@
 # openclaw-soul
 
-`openclaw-soul` is an OpenClaw skill that adds a `/soul` command for browsing,
-previewing, applying, and restoring `SOUL.md` personas from
-[mergisi/awesome-openclaw-agents](https://github.com/mergisi/awesome-openclaw-agents).
+`openclaw-soul` is an OpenClaw skill that adds a `/soul` command for browsing, previewing, applying, and restoring `SOUL.md` personas from [mergisi/awesome-openclaw-agents](https://github.com/mergisi/awesome-openclaw-agents).
 
-It keeps the workflow simple: browse available personas, inspect a soul, apply
-it to the current workspace, and restore from backup if needed.
+It keeps the workflow simple: browse available personas, inspect a soul, apply it to the current workspace, and restore from backup if needed.
 
 ## Features
 
 - browse personas by category
 - preview a soul before applying it
-- apply a remote `SOUL.md` into the current workspace
+- apply a remote or local `SOUL.md` into the current workspace
 - keep local backups before changes
 - restore the previous soul
 - refresh the cached catalog
@@ -28,7 +25,7 @@ it to the current workspace, and restore from backup if needed.
 | `/soul apply <id>` | Apply a soul to the workspace |
 | `/soul current` | Show the last recorded applied soul |
 | `/soul restore` | Restore the latest local backup |
-| `/soul refresh` | Re-fetch the remote catalog and refresh cache |
+| `/soul refresh` | Re-fetch the cached catalog |
 | `/soul search <text>` | Search by id, name, category, or role |
 
 ## Example usage
@@ -59,10 +56,8 @@ npm test
 
 ## Notes
 
-- We rotate `SOUL.md` only, as that is the main persona file provided by
-  mergisi/awesome-openclaw-agents.
-- It does not register provider-native slash commands for Discord, Telegram,
-  Matrix, or other chat providers.
+- The current soul defaults to OpenClaw's built-in `SOUL.md` until you apply a custom one.
+- It does not register provider-native slash commands for Discord, Telegram, Matrix, or other chat providers.
 
 ## License
 

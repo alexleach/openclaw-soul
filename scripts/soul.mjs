@@ -6,6 +6,7 @@ import process from 'node:process';
 
 const DEFAULT_CATALOG_URL = 'https://raw.githubusercontent.com/mergisi/awesome-openclaw-agents/refs/heads/main/agents.json';
 const DEFAULT_RAW_ROOT = 'https://raw.githubusercontent.com/mergisi/awesome-openclaw-agents/refs/heads/main/';
+const DEFAULT_SOUL_SOURCE = 'https://docs.openclaw.ai/reference/templates/SOUL.md';
 const USER_AGENT = 'openclaw-soul/0.1.0';
 const FETCH_TIMEOUT_MS = 15000;
 
@@ -20,10 +21,14 @@ const cacheFile = path.join(cacheDir, 'agents.json');
 const [subcommand = '', ...rest] = process.argv.slice(2).map(arg => arg.trim());
 const stateDefaults = {
   catalogUrl: DEFAULT_CATALOG_URL,
-  rawRoot: DEFAULT_RAW_ROOT,
   lastFetchedAt: null,
-  current: null,
-  backups: []
+  current: {
+    id: 'default',
+    category: 'builtin',
+    sourceUrl: DEFAULT_SOUL_SOURCE,
+    appliedAt: null,
+    custom: false
+  }
 };
 
 async function ensureDirs() {
@@ -66,14 +71,7 @@ function normalizeRelativeSoulPath(relPath) {
   if (typeof relPath !== 'string' || !relPath.trim()) {
     throw new Error('Catalog agent path must be a non-empty string.');
   }
-  const trimmed = relPath.trim();
-  if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(trimmed)) {
-    return trimmed;
-  }
-  if (trimmed.startsWith('/') || trimmed.startsWith('\\')) {
-    throw new Error(`Catalog agent path must be relative: ${relPath}`);
-  }
-  return trimmed;
+  return relPath.trim();
 }
 
 function validateCatalog(catalog) {
@@ -139,9 +137,9 @@ async function fetchText(url) {
 
 async function loadState() {
   const state = { ...stateDefaults, ...(await readJson(stateFile, stateDefaults)) };
-  state.catalogUrl = state.catalogUrl;
-  state.rawRoot = state.rawRoot;
-  state.backups = Array.isArray(state.backups) ? state.backups : [];
+  state.current = state.current && typeof state.current === 'object'
+    ? { ...stateDefaults.current, ...state.current }
+    : stateDefaults.current;
   return state;
 }
 
@@ -188,11 +186,15 @@ function searchAgents({ agents = [] }, text) {
 }
 
 function buildRawSoulUrl(state, agent) {
-  const rawRoot = state.rawRoot;
   const relPath = normalizeRelativeSoulPath(agent.path || '');
   if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(relPath)) {
     return relPath;
   }
+  if (/^(?:\.|\.|\/)/.test(relPath) || relPath.includes('/./') || relPath.includes('/../')) {
+    return relPath;
+  }
+  const parsed = parseCatalogUrl(state.catalogUrl, 'catalogUrl');
+  const rawRoot = new URL('.', parsed);
   const resolved = new URL(relPath, rawRoot);
   return resolved.toString();
 }
@@ -212,13 +214,40 @@ async function backupCurrentSoul(state) {
     const timestamp = new Date().toISOString().replaceAll(':', '-');
     const backupPath = path.join(backupDir, `SOUL-${timestamp}.md`);
     await writeAtomic(backupPath, current);
-    state.backups = state.backups || [];
-    state.backups.unshift({ path: backupPath, createdAt: new Date().toISOString() });
-    state.backups = state.backups.slice(0, 20);
     return backupPath;
   } catch {
     return null;
   }
+}
+
+async function listBackups() {
+  try {
+    const files = await fs.readdir(backupDir);
+    return files.filter(name => name.startsWith('SOUL-') && name.endsWith('.md')).sort().reverse();
+  } catch {
+    return [];
+  }
+}
+
+async function currentSoul(state) {
+  const { current } = state;
+  if (!current?.custom && !current?.sourceUrl) {
+    return {
+      id: 'default',
+      category: 'builtin',
+      sourceUrl: DEFAULT_SOUL_SOURCE,
+      appliedAt: null,
+      custom: false
+    };
+  }
+  if (current?.custom) {
+    return {
+      ...current,
+      id: 'custom',
+      category: current.category || 'local'
+    };
+  }
+  return current;
 }
 
 function print(text) {
@@ -226,9 +255,10 @@ function print(text) {
 }
 
 async function showHelp() {
-  const { current } = await loadState();
-  const active = current?.id ? `${current.id} (${current.category || 'unknown'})` : 'none recorded';
-  print(`Current soul: ${active}\n\nCommands:\n  soul categories\n  soul list <category>\n  soul show <id>\n  soul apply <id>\n  soul current\n  soul restore\n  soul refresh\n  soul search <text>`);
+  const state = await loadState();
+  const active = await currentSoul(state);
+  const label = active?.id ? `${active.id} (${active.category || 'unknown'})` : 'none recorded';
+  print(`Current soul: ${label}\n\nCommands:\n  soul categories\n  soul list <category>\n  soul show <id>\n  soul apply <id>\n  soul current\n  soul restore\n  soul refresh\n  soul search <text>`);
 }
 
 async function main() {
@@ -237,25 +267,29 @@ async function main() {
   if (!subcommand) return showHelp();
 
   if (subcommand === 'current') {
-    const { current } = await loadState();
-    return print(current
-      ? `Current soul:\n- id: ${current.id}\n- category: ${current.category}\n- source: ${current.sourceUrl}\n- appliedAt: ${current.appliedAt}`
+    const state = await loadState();
+    const active = await currentSoul(state);
+    return print(active
+      ? `Current soul:\n- id: ${active.id}\n- category: ${active.category}\n- source: ${active.sourceUrl}\n- appliedAt: ${active.appliedAt ?? 'never'}`
       : 'No recorded applied soul yet.');
   }
 
   if (subcommand === 'restore') {
     const state = await loadState();
-    const latest = state.backups[0];
+    const backups = await listBackups();
+    const latest = backups[0];
     if (!latest) return print('No backup found in soul-data/backups/.');
-    const content = validateSoulContent(await fs.readFile(latest.path, 'utf8'), latest.path);
+    const backupPath = path.join(backupDir, latest);
+    const content = validateSoulContent(await fs.readFile(backupPath, 'utf8'), backupPath);
     state.current = {
-      id: 'restored-from-backup',
+      id: 'custom',
       category: 'local',
-      sourceUrl: latest.path,
-      appliedAt: new Date().toISOString()
+      sourceUrl: backupPath,
+      appliedAt: new Date().toISOString(),
+      custom: true
     };
     await Promise.all([writeAtomic(soulFile, content), saveState(state)]);
-    return print(`Restored SOUL.md from backup:\n- ${latest.path}\n\nStart a new session or use /new to fully apply the restored soul.`);
+    return print(`Restored SOUL.md from backup:\n- ${backupPath}\n\nStart a new session or use /new to fully apply the restored soul.`);
   }
 
   const { catalog, state, source } = await loadCatalog(subcommand === 'refresh');
@@ -303,12 +337,14 @@ async function main() {
     const content = validateSoulContent(await fetchText(sourceUrl), sourceUrl);
     const backupPath = await backupCurrentSoul(state);
     state.current = {
-      id: agent.id,
+      id: 'custom',
       category: agent.category,
       name: agent.name || null,
       role: agent.role || null,
       sourceUrl,
-      appliedAt: new Date().toISOString()
+      appliedAt: new Date().toISOString(),
+      custom: true,
+      agentId: agent.id
     };
     await Promise.all([writeAtomic(soulFile, content), saveState(state)]);
     return print(`Applied soul:\n- id: ${agent.id}\n- category: ${agent.category}\n- source: ${sourceUrl}${backupPath ? `\n- backup: ${backupPath}` : ''}\n\nStart a new session or use /new to fully apply the new soul.`);
