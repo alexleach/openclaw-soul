@@ -60,6 +60,9 @@ npm test
 
 ## Usage Notes
 
-- `openclaw-default` represents the built-in OpenClaw `SOUL.md` template at <https://docs.openclaw.ai/reference/templates/SOUL.md>.
-- `custom` appears in `soul current` when the live `SOUL.md` no longer matches the checksum stored when a soul was applied.
-- It does not register provider-native slash commands for Discord, Telegram, Matrix, or other chat providers.
+- Running `/soul apply openclaw-default` will apply the OpenClaw-provided
+  SOUL.md, from <https://docs.openclaw.ai/reference/templates/SOUL.md>.
+- Running `/soul apply custom` will not touch SOUL.md, but will store in the
+  state file that SOUL.md is manually edited.
+- It does not register provider-native slash commands for Discord, Telegram,
+  Matrix, or other chat providers.
