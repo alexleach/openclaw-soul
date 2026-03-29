@@ -51,17 +51,15 @@ async function writeJson(file, value) {
   await writeAtomic(file, JSON.stringify(value, null, 2) + '\n');
 }
 
-function parseTrustedUrl(url, label) {
-  let parsed;
-  try {
-    parsed = new URL(url);
-  } catch {
+function parseCatalogUrl(url, label) {
+  if (typeof url !== 'string' || !url.trim()) {
     throw new Error(`Invalid ${label}: ${url}`);
   }
-  if (parsed.protocol !== 'https:') {
-    throw new Error(`${label} must use https: ${url}`);
+  try {
+    return new URL(url);
+  } catch {
+    return null;
   }
-  return parsed;
 }
 
 function normalizeRelativeSoulPath(relPath) {
@@ -69,17 +67,13 @@ function normalizeRelativeSoulPath(relPath) {
     throw new Error('Catalog agent path must be a non-empty string.');
   }
   const trimmed = relPath.trim();
+  if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(trimmed)) {
+    return trimmed;
+  }
   if (trimmed.startsWith('/') || trimmed.startsWith('\\')) {
     throw new Error(`Catalog agent path must be relative: ${relPath}`);
   }
-  const parts = trimmed.split('/');
-  if (parts.some(part => !part || part === '.' || part === '..')) {
-    throw new Error(`Catalog agent path contains invalid segments: ${relPath}`);
-  }
-  if (parts[parts.length - 1] !== 'SOUL.md') {
-    throw new Error(`Catalog agent path must point to SOUL.md: ${relPath}`);
-  }
-  return parts.join('/');
+  return trimmed;
 }
 
 function validateCatalog(catalog) {
@@ -117,7 +111,10 @@ function validateCatalog(catalog) {
 }
 
 async function fetchText(url) {
-  const parsed = parseTrustedUrl(url, 'URL');
+  const parsed = parseCatalogUrl(url, 'URL');
+  if (!parsed) {
+    return await fs.readFile(url, 'utf8');
+  }
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
@@ -142,8 +139,8 @@ async function fetchText(url) {
 
 async function loadState() {
   const state = { ...stateDefaults, ...(await readJson(stateFile, stateDefaults)) };
-  state.catalogUrl = parseTrustedUrl(state.catalogUrl, 'catalogUrl').toString();
-  state.rawRoot = parseTrustedUrl(state.rawRoot, 'rawRoot').toString();
+  state.catalogUrl = state.catalogUrl;
+  state.rawRoot = state.rawRoot;
   state.backups = Array.isArray(state.backups) ? state.backups : [];
   return state;
 }
@@ -191,11 +188,12 @@ function searchAgents({ agents = [] }, text) {
 }
 
 function buildRawSoulUrl(state, agent) {
-  const rawRoot = parseTrustedUrl(state.rawRoot, 'rawRoot');
-  const resolved = new URL(normalizeRelativeSoulPath(agent.path || ''), rawRoot);
-  if (resolved.hostname !== rawRoot.hostname || !resolved.pathname.startsWith(rawRoot.pathname)) {
-    throw new Error(`Resolved soul URL escapes configured rawRoot: ${resolved}`);
+  const rawRoot = state.rawRoot;
+  const relPath = normalizeRelativeSoulPath(agent.path || '');
+  if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(relPath)) {
+    return relPath;
   }
+  const resolved = new URL(relPath, rawRoot);
   return resolved.toString();
 }
 

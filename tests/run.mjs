@@ -84,11 +84,11 @@ await test('refresh fails on invalid cached catalog shape', async () => {
       catalogUrl: 'https://raw.githubusercontent.com/mergisi/awesome-openclaw-agents/refs/heads/main/agents.json',
       rawRoot: 'https://raw.githubusercontent.com/mergisi/awesome-openclaw-agents/refs/heads/main/'
     },
-    cache: { agents: [{ id: 'broken', category: 'x', path: '../SOUL.md' }] }
+    cache: { agents: 'broken' }
   });
   const result = await runCli(['categories'], { cwd });
   assert.notEqual(result.code, 0);
-  assert.match(result.stderr, /invalid segments|must point to SOUL\.md|must be relative/);
+  assert.match(result.stderr, /Catalog must contain an agents array/);
 });
 
 await test('categories works from valid cache', async () => {
@@ -182,18 +182,21 @@ await test('list returns a simple not-found message for unknown category', async
   assert.equal(result.stdout.trim(), 'No souls found for category: fuun');
 });
 
-await test('apply fails when cache path escapes raw root', async () => {
+await test('apply accepts a relative path entry', async () => {
   const cwd = await setupWorkspace({
     state: {
       catalogUrl: 'https://raw.githubusercontent.com/mergisi/awesome-openclaw-agents/refs/heads/main/agents.json',
       rawRoot: 'https://raw.githubusercontent.com/mergisi/awesome-openclaw-agents/refs/heads/main/'
     },
-    cache: { agents: [{ id: 'oops', category: 'fun', path: '../evil/SOUL.md' }] },
+    cache: { agents: [{ id: 'oops', category: 'fun', path: './local/SOUL.md' }] },
     soul: '# Existing\n'
   });
+  const localSoul = path.join(cwd, 'local', 'SOUL.md');
+  await writeText(localSoul, '# Local\n\nLocal soul\n');
   const result = await runCli(['apply', 'oops'], { cwd });
-  assert.notEqual(result.code, 0);
-  assert.match(result.stderr, /invalid segments|must point to SOUL\.md|must be relative/);
+  assert.equal(result.code, 0);
+  const current = await fs.readFile(path.join(cwd, 'SOUL.md'), 'utf8');
+  assert.match(current, /# Local/);
 });
 
 if (process.exitCode) {

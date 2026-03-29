@@ -43,21 +43,13 @@ it to the current workspace, and restore from backup if needed.
 
 After `apply` or `restore`, start a new session or use `/new` for full effect.
 
-## Storage
+## Local data
 
-Workspace-local state is stored in:
-
-- `soul-data/cache/agents.json`
-- `soul-data/backups/SOUL-<timestamp>.md`
-- `soul-data/state.json`
-
-## Safety notes
-
-- the default catalog/content source is the upstream `mergisi/awesome-openclaw-agents` raw endpoint
-- catalog entries must resolve to relative `SOUL.md` paths
-- invalid catalog data and suspicious paths are rejected
-- local backups are kept before overwrite when possible
-- state, cache, backups, and `SOUL.md` are written atomically
+| Path | Purpose |
+| --- | --- |
+| `soul-data/cache/agents.json` | Cached catalog data |
+| `soul-data/backups/SOUL-<timestamp>.md` | Backup taken before applying a new soul |
+| `soul-data/state.json` | Last applied soul and provenance |
 
 ## Development
 
