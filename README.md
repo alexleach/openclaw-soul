@@ -1,6 +1,11 @@
 # openclaw-soul
 
-`openclaw-soul` is an OpenClaw skill that adds a `/soul` command for browsing, previewing, applying, and restoring `SOUL.md` personas from `mergisi/awesome-openclaw-agents`. It keeps the workflow simple: browse available personas, inspect a soul, apply it to the current workspace, and restore from backup if needed.
+`openclaw-soul` is an OpenClaw skill that adds a `/soul` command for browsing,
+previewing, applying, and restoring `SOUL.md` personas from
+[mergisi/awesome-openclaw-agents](https://github.com/mergisi/awesome-openclaw-agents).
+
+It keeps the workflow simple: browse available personas, inspect a soul, apply
+it to the current workspace, and restore from backup if needed.
 
 ## Features
 
@@ -62,8 +67,10 @@ npm test
 
 ## Notes
 
-- This MVP manages `SOUL.md` only.
-- It does not register provider-native slash commands for Discord, Telegram, Matrix, or other chat providers.
+- We rotate `SOUL.md` only, as that is the main persona file provided by
+  mergisi/awesome-openclaw-agents.
+- It does not register provider-native slash commands for Discord, Telegram,
+  Matrix, or other chat providers.
 
 ## License
 
