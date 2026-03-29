@@ -56,7 +56,7 @@ npm test
 
 ## Notes
 
-- The builtin soul is exposed as `openclaw-default`.
+- The tool has a builtin soul state for a fresh workspace.
 - `custom` marks souls that came from outside the catalog (for example, manual local content or a restore/apply that is not a catalog entry).
 - It does not register provider-native slash commands for Discord, Telegram, Matrix, or other chat providers.
 
