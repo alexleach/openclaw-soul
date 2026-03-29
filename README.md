@@ -1,8 +1,6 @@
 # openclaw-soul
 
-`openclaw-soul` is an OpenClaw skill that adds a `/soul` command for browsing, previewing, applying, and restoring curated `SOUL.md` personas from a machine-readable catalog.
-
-It keeps the workflow simple: browse a catalog, inspect a soul, apply it to the current workspace, and restore from backup if needed.
+`openclaw-soul` is an OpenClaw skill that adds a `/soul` command for browsing, previewing, applying, and restoring `SOUL.md` personas from `mergisi/awesome-openclaw-agents`. It keeps the workflow simple: browse available personas, inspect a soul, apply it to the current workspace, and restore from backup if needed.
 
 ## Features
 
@@ -47,11 +45,6 @@ Workspace-local state is stored in:
 - `soul-data/cache/agents.json`
 - `soul-data/backups/SOUL-<timestamp>.md`
 - `soul-data/state.json`
-
-## Default catalog
-
-- Catalog: <https://raw.githubusercontent.com/mergisi/awesome-openclaw-agents/refs/heads/main/agents.json>
-- Source repo: <https://github.com/mergisi/awesome-openclaw-agents>
 
 ## Safety notes
 
