@@ -1,5 +1,7 @@
 # openclaw-soul
 
+[![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE) [![OpenClaw](https://img.shields.io/badge/OpenClaw-soul-blueviolet)](https://github.com/openclaw/openclaw)
+
 `openclaw-soul` is an OpenClaw skill that adds a `/soul` command for browsing, previewing, applying, and restoring `SOUL.md` personas from [mergisi/awesome-openclaw-agents](https://github.com/mergisi/awesome-openclaw-agents).
 
 It keeps the workflow simple: browse available personas, inspect a soul, apply it to the current workspace, and restore from backup if needed.
@@ -56,10 +58,7 @@ npm test
 
 ## Notes
 
-- The tool has a builtin soul state for a fresh workspace.
-- `custom` marks souls that came from outside the catalog (for example, manual local content or a restore/apply that is not a catalog entry).
+- `openclaw-default` represents the built-in OpenClaw `SOUL.md` template at <https://docs.openclaw.ai/reference/templates/SOUL.md>.
+- `custom` appears in `soul current` after you apply or restore a soul that is not one of the catalog entries; it is a label, not a separate action.
 - It does not register provider-native slash commands for Discord, Telegram, Matrix, or other chat providers.
 
-## License
-
-MIT
