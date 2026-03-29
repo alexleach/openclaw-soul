@@ -62,7 +62,8 @@ npm test
 
 - Running `/soul apply openclaw-default` will apply the OpenClaw-provided
   SOUL.md, from <https://docs.openclaw.ai/reference/templates/SOUL.md>.
-- Running `/soul apply custom` will not touch SOUL.md, but will store in the
-  state file that SOUL.md is manually edited.
+- `/soul current` compares the live `SOUL.md` against a checksum saved during
+  `/soul apply`. If it no longer matches, it reports `custom, from <current>
+  (modified)`, where `<current>` is the last applied soul.
 - It does not register provider-native slash commands for Discord, Telegram,
   Matrix, or other chat providers.
