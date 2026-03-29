@@ -22,5 +22,10 @@
   ],
   "scripts": {
     "test": "node tests/run.mjs"
+  },
+  "author": {
+    "name": "Alex Leach",
+    "email": "alexleach@users.noreply.github.com",
+    "url": "https://github.com/alexleach"
   }
 }
