@@ -52,13 +52,14 @@ After `apply` or `restore`, start a new session or use `/new` for full effect.
 
 ## Development
 
+Run tests with:-
+
 ```bash
 npm test
 ```
 
-## Notes
+## Usage Notes
 
 - `openclaw-default` represents the built-in OpenClaw `SOUL.md` template at <https://docs.openclaw.ai/reference/templates/SOUL.md>.
-- `custom` appears in `soul current` after you apply or restore a soul that is not one of the catalog entries; it is a label, not a separate action.
+- `custom` appears in `soul current` when the live `SOUL.md` no longer matches the checksum stored when a soul was applied.
 - It does not register provider-native slash commands for Discord, Telegram, Matrix, or other chat providers.
-
