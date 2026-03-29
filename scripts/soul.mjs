@@ -3,9 +3,9 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
+import crypto from 'node:crypto';
 
 const DEFAULT_CATALOG_URL = 'https://raw.githubusercontent.com/mergisi/awesome-openclaw-agents/refs/heads/main/agents.json';
-const DEFAULT_RAW_ROOT = 'https://raw.githubusercontent.com/mergisi/awesome-openclaw-agents/refs/heads/main/';
 const DEFAULT_SOUL_SOURCE = 'https://docs.openclaw.ai/reference/templates/SOUL.md';
 const USER_AGENT = 'openclaw-soul/0.1.0';
 const FETCH_TIMEOUT_MS = 15000;
@@ -27,6 +27,7 @@ const stateDefaults = {
     category: 'builtin',
     sourceUrl: DEFAULT_SOUL_SOURCE,
     appliedAt: null,
+    checksum: null,
     custom: false
   }
 };
@@ -54,6 +55,10 @@ async function writeAtomic(file, content) {
 
 async function writeJson(file, value) {
   await writeAtomic(file, JSON.stringify(value, null, 2) + '\n');
+}
+
+function sha1(text) {
+  return crypto.createHash('sha1').update(text, 'utf8').digest('hex');
 }
 
 function parseCatalogUrl(url, label) {
@@ -208,7 +213,7 @@ function validateSoulContent(content, sourceUrl) {
   return content;
 }
 
-async function backupCurrentSoul(state) {
+async function backupCurrentSoul() {
   try {
     const current = await fs.readFile(soulFile, 'utf8');
     const timestamp = new Date().toISOString().replaceAll(':', '-');
@@ -230,23 +235,48 @@ async function listBackups() {
 }
 
 async function currentSoul(state) {
-  const { current } = state;
+  const current = state.current;
   if (!current?.custom && !current?.sourceUrl) {
     return {
       id: 'openclaw-default',
       category: 'builtin',
       sourceUrl: DEFAULT_SOUL_SOURCE,
       appliedAt: null,
+      checksum: null,
       custom: false
     };
   }
+
   if (current?.custom) {
+    return current;
+  }
+
+  if (!current?.checksum) {
+    return current;
+  }
+
+  try {
+    const live = await fs.readFile(soulFile, 'utf8');
+    const checksum = sha1(live);
+    if (checksum !== current.checksum) {
+      return {
+        ...current,
+        id: 'custom',
+        category: 'local',
+        custom: true,
+        note: `custom, from ${current.sourceUrl} (modified)`
+      };
+    }
+  } catch {
     return {
       ...current,
       id: 'custom',
-      category: current.category || 'local'
+      category: 'local',
+      custom: true,
+      note: `custom, from ${current.sourceUrl} (modified)`
     };
   }
+
   return current;
 }
 
@@ -269,6 +299,7 @@ async function main() {
   if (subcommand === 'current') {
     const state = await loadState();
     const active = await currentSoul(state);
+    if (active?.note) return print(active.note);
     return print(active
       ? `Current soul:\n- id: ${active.id}\n- category: ${active.category}\n- source: ${active.sourceUrl}\n- appliedAt: ${active.appliedAt ?? 'never'}`
       : 'No recorded applied soul yet.');
@@ -286,6 +317,7 @@ async function main() {
       category: 'local',
       sourceUrl: backupPath,
       appliedAt: new Date().toISOString(),
+      checksum: sha1(content),
       custom: true
     };
     await Promise.all([writeAtomic(soulFile, content), saveState(state)]);
@@ -335,15 +367,17 @@ async function main() {
     if (!agent) return print(`Soul not found: ${id}`);
     const sourceUrl = buildRawSoulUrl(state, agent);
     const content = validateSoulContent(await fetchText(sourceUrl), sourceUrl);
-    const backupPath = await backupCurrentSoul(state);
+    const checksum = sha1(content);
+    const backupPath = await backupCurrentSoul();
     state.current = {
-      id: 'custom',
+      id: agent.id,
       category: agent.category,
       name: agent.name || null,
       role: agent.role || null,
       sourceUrl,
       appliedAt: new Date().toISOString(),
-      custom: true,
+      checksum,
+      custom: false,
       agentId: agent.id
     };
     await Promise.all([writeAtomic(soulFile, content), saveState(state)]);

@@ -6,6 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
+import crypto from 'node:crypto';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const script = path.resolve(here, '..', 'scripts', 'soul.mjs');
@@ -131,19 +132,24 @@ await test('restore fails cleanly when no backup exists', async () => {
   assert.match(result.stdout, /No backup found/);
 });
 
-await test('restore restores latest backup', async () => {
+await test('restore restores latest backup and stores checksum', async () => {
   const cwd = await setupWorkspace({
     state: {
       catalogUrl: 'https://raw.githubusercontent.com/mergisi/awesome-openclaw-agents/refs/heads/main/agents.json'
     },
     soul: '# Current\n\nOld soul\n'
   });
-  await writeText(path.join(cwd, 'soul-data', 'backups', 'SOUL-1.md'), '# Restored\n\nBacked up soul\n');
+  const backupPath = path.join(cwd, 'soul-data', 'backups', 'SOUL-1.md');
+  await writeText(backupPath, '# Restored\n\nBacked up soul\n');
   const result = await runCli(['restore'], { cwd });
   assert.equal(result.code, 0);
   const restored = await fs.readFile(path.join(cwd, 'SOUL.md'), 'utf8');
   assert.match(restored, /# Restored/);
   assert.match(result.stdout, /Restored SOUL\.md from backup/);
+  const state = JSON.parse(await fs.readFile(path.join(cwd, 'soul-data', 'state.json'), 'utf8'));
+  assert.equal(state.current.custom, true);
+  assert.equal(state.current.id, 'custom');
+  assert.equal(state.current.checksum, crypto.createHash('sha1').update(restored, 'utf8').digest('hex'));
 });
 
 await test('show returns a simple not-found message for unknown id', async () => {
@@ -183,26 +189,31 @@ await test('apply accepts a relative path entry', async () => {
   assert.equal(result.code, 0);
   const current = await fs.readFile(path.join(cwd, 'SOUL.md'), 'utf8');
   assert.match(current, /# Local/);
+  const state = JSON.parse(await fs.readFile(path.join(cwd, 'soul-data', 'state.json'), 'utf8'));
+  assert.equal(state.current.checksum, crypto.createHash('sha1').update(current, 'utf8').digest('hex'));
 });
 
-await test('manually edited soul is reported as custom', async () => {
+await test('manual edit is detected as custom', async () => {
   const cwd = await setupWorkspace({
     state: {
-      catalogUrl: 'https://raw.githubusercontent.com/mergisi/awesome-openclaw-agents/refs/heads/main/agents.json',
-      current: {
-        id: 'custom',
-        category: 'local',
-        sourceUrl: path.join('/tmp', 'manual', 'SOUL.md'),
-        appliedAt: '2026-03-29T00:00:00.000Z',
-        custom: true
-      }
+      catalogUrl: 'https://raw.githubusercontent.com/mergisi/awesome-openclaw-agents/refs/heads/main/agents.json'
     },
-    soul: '# Custom\n'
+    soul: '# Existing\n'
   });
+  const state = JSON.parse(await fs.readFile(path.join(cwd, 'soul-data', 'state.json'), 'utf8'));
+  state.current = {
+    id: 'orion',
+    category: 'curated',
+    sourceUrl: 'https://example.invalid/orion/SOUL.md',
+    appliedAt: '2026-03-29T00:00:00.000Z',
+    checksum: crypto.createHash('sha1').update('# Original\n', 'utf8').digest('hex'),
+    custom: false
+  };
+  await writeJson(path.join(cwd, 'soul-data', 'state.json'), state);
+  await writeText(path.join(cwd, 'SOUL.md'), '# Edited\n');
   const result = await runCli(['current'], { cwd });
   assert.equal(result.code, 0);
-  assert.match(result.stdout, /id: custom/);
-  assert.match(result.stdout, /category: local/);
+  assert.match(result.stdout, /custom, from https:\/\/example\.invalid\/orion\/SOUL\.md \(modified\)/);
 });
 
 if (process.exitCode) {
