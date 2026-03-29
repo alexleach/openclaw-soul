@@ -191,6 +191,7 @@ await test('apply accepts a relative path entry', async () => {
   assert.match(current, /# Local/);
   const state = JSON.parse(await fs.readFile(path.join(cwd, 'soul-data', 'state.json'), 'utf8'));
   assert.equal(state.current.checksum, crypto.createHash('sha1').update(current, 'utf8').digest('hex'));
+  assert.equal(state.current.custom, false);
 });
 
 await test('manual edit is detected as custom', async () => {
