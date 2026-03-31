@@ -319,7 +319,8 @@ export async function main() {
 
   const supported = new Set(['current', 'restore', 'refresh', 'categories', 'list', 'search', 'show', 'apply']);
   if (!supported.has(subcommand)) {
-    return showHelp(rest.join(' ') ? `${subcommand}: ${rest.join(' ')}` : subcommand);
+    const fullCommand = [subcommand, ...rest].filter(Boolean).join(' ').trim();
+    return showHelp(fullCommand);
   }
 
   if (subcommand === 'current') {
