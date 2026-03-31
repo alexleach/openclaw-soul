@@ -4,6 +4,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
 import crypto from 'node:crypto';
+import { fileURLToPath } from 'node:url';
 
 const DEFAULT_CATALOG_URL = 'https://raw.githubusercontent.com/mergisi/awesome-openclaw-agents/refs/heads/main/agents.json';
 const DEFAULT_SOUL_SOURCE = 'https://docs.openclaw.ai/reference/templates/SOUL.md';
@@ -19,7 +20,6 @@ const backupDir = path.join(dataDir, 'backups');
 const stateFile = path.join(dataDir, 'state.json');
 const cacheFile = path.join(cacheDir, 'agents.json');
 
-const [subcommand = '', ...rest] = process.argv.slice(2).map(arg => arg.trim());
 const stateDefaults = {
   catalogUrl: DEFAULT_CATALOG_URL,
   lastFetchedAt: null,
@@ -32,31 +32,6 @@ const stateDefaults = {
     custom: false
   }
 };
-
-async function ensureDirs() {
-  await fs.mkdir(cacheDir, { recursive: true });
-  await fs.mkdir(backupDir, { recursive: true });
-}
-
-async function readJson(file, fallback) {
-  try {
-    return JSON.parse(await fs.readFile(file, 'utf8'));
-  } catch {
-    return fallback;
-  }
-}
-
-async function writeAtomic(file, content) {
-  const dir = path.dirname(file);
-  const base = path.basename(file);
-  const temp = path.join(dir, `.${base}.${process.pid}.${Date.now()}.tmp`);
-  await fs.writeFile(temp, content, 'utf8');
-  await fs.rename(temp, file);
-}
-
-async function writeJson(file, value) {
-  await writeAtomic(file, JSON.stringify(value, null, 2) + '\n');
-}
 
 function sha1(text) {
   return crypto.createHash('sha1').update(text, 'utf8').digest('hex');
@@ -80,7 +55,40 @@ function normalizeRelativeSoulPath(relPath) {
   return relPath.trim();
 }
 
-function validateCatalog(catalog) {
+function localWorkspacePath(input) {
+  const resolved = path.resolve(workspaceDir, input);
+  if (!resolved.startsWith(workspaceDir + path.sep) && resolved !== workspaceDir) {
+    throw new Error(`Local path escapes workspace: ${input}`);
+  }
+  return resolved;
+}
+
+export async function ensureDirs() {
+  await fs.mkdir(cacheDir, { recursive: true });
+  await fs.mkdir(backupDir, { recursive: true });
+}
+
+export async function readJson(file, fallback) {
+  try {
+    return JSON.parse(await fs.readFile(file, 'utf8'));
+  } catch {
+    return fallback;
+  }
+}
+
+export async function writeAtomic(file, content) {
+  const dir = path.dirname(file);
+  const base = path.basename(file);
+  const temp = path.join(dir, `.${base}.${process.pid}.${Date.now()}.tmp`);
+  await fs.writeFile(temp, content, 'utf8');
+  await fs.rename(temp, file);
+}
+
+export async function writeJson(file, value) {
+  await writeAtomic(file, JSON.stringify(value, null, 2) + '\n');
+}
+
+export function validateCatalog(catalog) {
   if (!catalog || typeof catalog !== 'object' || Array.isArray(catalog)) {
     throw new Error('Catalog must be a JSON object.');
   }
@@ -114,14 +122,10 @@ function validateCatalog(catalog) {
   return { ...catalog, agents };
 }
 
-async function fetchText(url) {
+export async function fetchRemoteText(url) {
   const parsed = parseCatalogUrl(url, 'URL');
   if (!parsed) {
-    const resolved = path.resolve(workspaceDir, url);
-    if (!resolved.startsWith(workspaceDir + path.sep) && resolved !== workspaceDir) {
-      throw new Error(`Local path escapes workspace: ${url}`);
-    }
-    return await fs.readFile(resolved, 'utf8');
+    throw new Error(`Expected remote URL, got local path: ${url}`);
   }
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
@@ -145,7 +149,17 @@ async function fetchText(url) {
   }
 }
 
-async function loadState() {
+export async function readLocalText(url) {
+  const resolved = localWorkspacePath(url);
+  return await fs.readFile(resolved, 'utf8');
+}
+
+export async function fetchText(url) {
+  const parsed = parseCatalogUrl(url, 'URL');
+  return parsed ? fetchRemoteText(url) : readLocalText(url);
+}
+
+export async function loadState() {
   const state = { ...stateDefaults, ...(await readJson(stateFile, stateDefaults)) };
   state.current = state.current && typeof state.current === 'object'
     ? { ...stateDefaults.current, ...state.current }
@@ -153,11 +167,11 @@ async function loadState() {
   return state;
 }
 
-async function saveState(state) {
+export async function saveState(state) {
   await writeJson(stateFile, state);
 }
 
-async function loadCatalog(force = false) {
+export async function loadCatalog(force = false) {
   const state = await loadState();
   const cached = !force ? await readJson(cacheFile, null) : null;
   if (cached?.agents?.length) return { catalog: validateCatalog(cached), state, source: 'cache' };
@@ -176,7 +190,7 @@ async function loadCatalog(force = false) {
   return { catalog, state, source: 'remote' };
 }
 
-function byCategory({ agents = [] }) {
+export function byCategory({ agents = [] }) {
   const map = new Map();
   for (const agent of agents) {
     const category = agent.category || 'uncategorized';
@@ -185,27 +199,23 @@ function byCategory({ agents = [] }) {
   return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0]));
 }
 
-function findAgent({ agents = [] }, id) {
+export function findAgent({ agents = [] }, id) {
   const needle = id.toLowerCase();
   return agents.find(a => [a.id, a.name].some(v => v?.toLowerCase() === needle));
 }
 
-function searchAgents({ agents = [] }, text) {
+export function searchAgents({ agents = [] }, text) {
   const needle = text.toLowerCase();
   return agents.filter(a => [a.id, a.name, a.category, a.role].some(v => v?.toLowerCase().includes(needle)));
 }
 
-function buildRawSoulUrl(state, agent) {
+export function buildRawSoulUrl(state, agent) {
   const relPath = normalizeRelativeSoulPath(agent.path || '');
   if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(relPath)) {
     return relPath;
   }
   if (/^(?:\.|\.|\/)/.test(relPath) || relPath.includes('/./') || relPath.includes('/../')) {
-    const resolved = path.resolve(workspaceDir, relPath);
-    if (!resolved.startsWith(workspaceDir + path.sep) && resolved !== workspaceDir) {
-      throw new Error(`Local soul path escapes workspace: ${relPath}`);
-    }
-    return resolved;
+    return localWorkspacePath(relPath);
   }
   const parsed = parseCatalogUrl(state.catalogUrl, 'catalogUrl');
   const rawRoot = new URL('.', parsed);
@@ -213,7 +223,7 @@ function buildRawSoulUrl(state, agent) {
   return resolved.toString();
 }
 
-function validateSoulContent(content, sourceUrl) {
+export function validateSoulContent(content, sourceUrl) {
   const text = typeof content === 'string' ? content.trim() : '';
   if (!text) throw new Error(`Fetched soul content is empty: ${sourceUrl}`);
   if (!(text.startsWith('#') || text.startsWith('---') || text.includes('\n# '))) {
@@ -222,7 +232,7 @@ function validateSoulContent(content, sourceUrl) {
   return content;
 }
 
-async function backupCurrentSoul() {
+export async function backupCurrentSoul() {
   try {
     const current = await fs.readFile(soulFile, 'utf8');
     const timestamp = new Date().toISOString().replaceAll(':', '-');
@@ -234,7 +244,7 @@ async function backupCurrentSoul() {
   }
 }
 
-async function listBackups() {
+export async function listBackups() {
   try {
     const files = await fs.readdir(backupDir);
     return files.filter(name => name.startsWith('SOUL-') && name.endsWith('.md')).sort().reverse();
@@ -243,7 +253,7 @@ async function listBackups() {
   }
 }
 
-async function currentSoul(state) {
+export async function currentSoul(state) {
   const current = state.current;
   if (!current?.custom && !current?.sourceUrl) {
     return {
@@ -289,21 +299,28 @@ async function currentSoul(state) {
   return current;
 }
 
-function print(text) {
+export function print(text) {
   console.log(text);
 }
 
-async function showHelp() {
+export async function showHelp(errorMessage) {
   const state = await loadState();
   const active = await currentSoul(state);
   const label = active?.id ? `${active.id} (${active.category || 'unknown'})` : 'none recorded';
-  print(`Current soul: ${label}\n\nCommands:\n  soul categories\n  soul list <category>\n  soul show <id>\n  soul apply <id>\n  soul current\n  soul restore\n  soul refresh\n  soul search <text>`);
+  const prefix = errorMessage ? `\`${'/soul'}\`. Unknown command: \`${errorMessage}\`\n\n` : '';
+  print(`${prefix}Current soul: ${label}\n\nCommands:\n  soul categories\n  soul list <category>\n  soul show <id>\n  soul apply <id>\n  soul current\n  soul restore\n  soul refresh\n  soul search <text>`);
 }
 
-async function main() {
+export async function main() {
+  const [subcommand = '', ...rest] = process.argv.slice(2).map(arg => arg.trim());
   await ensureDirs();
 
   if (!subcommand) return showHelp();
+
+  const supported = new Set(['current', 'restore', 'refresh', 'categories', 'list', 'search', 'show', 'apply']);
+  if (!supported.has(subcommand)) {
+    return showHelp(rest.join(' ') ? `${subcommand}: ${rest.join(' ')}` : subcommand);
+  }
 
   if (subcommand === 'current') {
     const state = await loadState();
@@ -396,7 +413,9 @@ async function main() {
   print(`Unknown subcommand: ${subcommand}\n\nRun: soul`);
 }
 
-main().catch((err) => {
-  console.error(err?.message || String(err));
-  process.exit(1);
-});
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  main().catch((err) => {
+    console.error(err?.message || String(err));
+    process.exit(1);
+  });
+}
